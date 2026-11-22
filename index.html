@@ -673,9 +673,9 @@ function viewCalendar(){
 
 /* ---------- billing statements (PDF) ---------- */
 const owedBy=id=>live().filter(o=>o.cust===id).reduce((a,o)=>a+bal(o),0);
-function stmtGroups(only){
+function stmtGroups(only,ids){
   const m={};
-  live().filter(o=>bal(o)>0&&(only===undefined||(o.cust||'')===only)).forEach(o=>{(m[o.cust||'']=m[o.cust||'']||[]).push(o)});
+  live().filter(o=>bal(o)>0&&(only===undefined||(o.cust||'')===only)&&(!ids||ids.includes(o.id))).forEach(o=>{(m[o.cust||'']=m[o.cust||'']||[]).push(o)});
   return Object.keys(m).map(id=>{
     const c=cust(id)||{},t=today();
     return{id,name:c.name||'Walk-in',phone:c.phone||'',address:c.address||'',
@@ -710,7 +710,27 @@ function showPdf(fn,title,who,ctrl,line){
   <div class="card" style="margin-top:14px;font-size:13px;line-height:1.5"><b>To print with Google Drive</b><br>1. Download the PDF.<br>2. Upload it to Google Drive and open it.<br>3. Tap the print icon (or press Ctrl + P).<br><span class="mut">Tip: print it straight from Drive. Converting it to a Google Doc can shift the layout.</span></div>`);
 }
 function sharePdf(){if(pdfFile)navigator.share({files:[pdfFile],title:pdfFile.name}).catch(()=>{})}
-function statementFor(id){makeStatements(stmtGroups(id),custName(id))}
+function statementFor(id){
+  const os=live().filter(o=>(o.cust||'')===id&&bal(o)>0).sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999')||a.date-b.date);
+  if(!os.length){toast('Nothing unpaid');return}
+  modal(`<div class="sh"><h3>Billing statement</h3><button class="btn sm" onclick="closeModal()">Close</button></div>
+  <p class="mut" style="margin:0 0 6px;font-size:13px">Tick the orders to bill <b>${esc(custName(id))}</b> for. Only ticked orders go on the statement.</p>
+  <label style="display:flex;gap:10px;align-items:center;margin:0 0 4px;font-weight:600"><input type="checkbox" id="sp_all" checked onchange="document.querySelectorAll('.sp_ck').forEach(x=>x.checked=this.checked);spTot()" style="width:20px;height:20px;flex:none">Select all</label>
+  <div class="card list" style="padding:4px 14px">${os.map(o=>`<label style="display:flex;gap:10px;align-items:center;margin:0;padding:10px 0;border-bottom:1px solid var(--line);font-weight:500"><input type="checkbox" class="sp_ck" value="${o.id}" data-bal="${bal(o)}" checked onchange="spTot()" style="width:20px;height:20px;flex:none"><span class="grow">${ordNo(o)} · ${fmtD(o.date)}${o.due?` · due ${fmtD(o.due)}`:''}<br><span class="mut" style="font-size:12px;font-weight:400">${esc(o.items.map(i=>i.qty+'× '+i.name).join(', ')).slice(0,90)}</span></span><b class="tabular">${money(bal(o))}</b></label>`).join('')}</div>
+  <div class="row" style="margin:12px 0"><b class="grow">Amount to bill</b><b id="sp_tot" class="tabular" style="font-size:18px;color:var(--pink)"></b></div>
+  <button class="btn pink full" onclick="spMake('${id}')">Make statement</button>`);
+  spTot();
+}
+function spTot(){
+  const c=[...document.querySelectorAll('.sp_ck')],on=c.filter(x=>x.checked);
+  $('#sp_tot').textContent=money(on.reduce((a,x)=>a+(+x.dataset.bal),0));
+  const al=$('#sp_all');if(al)al.checked=on.length===c.length;
+}
+function spMake(id){
+  const ids=[...document.querySelectorAll('.sp_ck:checked')].map(x=>x.value);
+  if(!ids.length){toast('Tick at least one order');return}
+  makeStatements(stmtGroups(id,ids),custName(id));
+}
 function statementsAll(){makeStatements(stmtGroups(),'All-unpaid')}
 
 /* ---------- delivery receipts (PDF) ---------- */

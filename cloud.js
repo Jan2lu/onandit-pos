@@ -15,7 +15,9 @@ async function loadClient(){
 function fail(msg){window.CloudError=msg;window.dispatchEvent(new Event('cloud-failed'))}
 
 const cfg=window.TRIPOS_CLOUD||{};
-const url=String(cfg.supabase&&cfg.supabase.url||'').trim().replace(/\/+$/,'');
+let url=String(cfg.supabase&&cfg.supabase.url||'').trim().replace(/^["'\s]+|["',\s]+$/g,'');
+if(url&&!/^https?:\/\//i.test(url))url='https://'+url;
+try{if(url)url=new URL(url).origin}catch(e){}   // drops extra paths like /rest/v1
 const key=String(cfg.supabase&&cfg.supabase.anonKey||'').trim();
 let sb=null;
 if(!/^https:\/\/[^\s/]+\.[^\s/]+$/.test(url)||/supabase\.com/i.test(url)){
