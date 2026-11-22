@@ -1,5 +1,5 @@
-const CACHE = 'tripos-v5';
-const ASSETS = ['./', './index.html', './manifest.webmanifest', './app-config.js', './cloud.js', './logo.jpg', './icon-192.png', './icon-512.png'];
+const CACHE = 'tripos-v8';
+const ASSETS = ['./', './index.html', './manifest.webmanifest', './app-config.js', './cloud.js', './logo.jpg', './logo-data.js', './statement.js', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

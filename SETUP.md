@@ -38,3 +38,14 @@ On GitHub open app-config.js > pencil icon. Paste the URL, the key and the two e
 - The two emails and the publishable key are visible to anyone who opens the site's files. That is normal.
   The database rules in supabase-setup.sql are what keep the data private.
 - Vercel's free Hobby plan is meant for personal, non-commercial use. See the note in the chat guide.
+
+## Billing statements (new)
+Upload the two new files too: `statement.js` and `logo-data.js` (plus the updated `index.html` and `sw.js`).
+In the app: Manage > Business > fill in shop address, phone and "How to pay", then Save.
+Then open a customer in Contacts and tap "Billing statement (PDF)", or go to Records > Unpaid projects for all customers at once.
+To print: download the PDF, upload it to Google Drive, open it and press the print icon.
+
+## Delivery receipts (new)
+Open any order and tap "Delivery receipt". Tick the orders being delivered, check the address, then make the PDF.
+It has a control number (DR-0001...), the items, and signature lines for "Delivered by", "Received by" and "Date received".
+Same files as above: replace index.html, statement.js and sw.js on GitHub.

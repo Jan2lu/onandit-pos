@@ -178,6 +178,7 @@ label{display:block;font-size:12px;font-weight:600;color:var(--mut);margin:12px 
 .cal-d .e{color:var(--ink2);font-size:10.5px;font-weight:600}
 .cal-d.today .n{background:var(--pink);color:#fff;border-radius:99px;padding:0 6px}
 .cal-d.sel{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+.cal-d.inr{background:var(--pinkbg);border-color:var(--pinkbd)}
 @media(min-width:900px){.cal-d{min-height:84px;padding:8px}.cal-d .s,.cal-d .e{font-size:12.5px}}
 .row>select,.row>input{min-width:0}
 .login{position:fixed;inset:0;z-index:100;background:var(--logobg);display:grid;place-items:center;padding:20px;overflow:auto}
@@ -214,6 +215,8 @@ label{display:block;font-size:12px;font-weight:600;color:var(--mut);margin:12px 
     </form></div>
 </div>
 <script src="app-config.js"></script>
+<script src="logo-data.js"></script>
+<script src="statement.js"></script>
 
 <script>
 'use strict';
@@ -250,7 +253,7 @@ const KEY='tripos.v2';
 function seed(){
   const it=(dept,name,price)=>({id:uid(),dept,name,price});
   return{
-    settings:{store:'On&iT Fine Embroidery',cur:'₱',orderNo:1,footer:'Thank you for your order!'},
+    settings:{store:'On&iT Fine Embroidery',cur:'₱',orderNo:1,footer:'Thank you for your order!',addr:'',phone:'',payInfo:'',stmtNo:1,drNo:1},
     items:[
       it('embroidery','Logo embroidery (small)',120),it('embroidery','Logo embroidery (large)',250),it('embroidery','Name / text embroidery',80),
       it('embroidery','Cap embroidery',150),it('embroidery','Patch embroidery',180),it('embroidery','Digitizing fee',500),
@@ -298,7 +301,7 @@ function download(name,text,type){try{const a=document.createElement('a');a.href
 /* ---------- state ---------- */
 let tab='pos',pdept='all',q='',cart={items:[],cust:'',due:'',disc:0,dt:'pct',note:''},cartOpen=false,custFromCart=false;
 let oS='all',oD='all',oQ='',cQ='',cT='all',cD='all',cType='customer',cDepts=[],eD='all',period='30';
-let calM=today().slice(0,7),calSel=today(),calD='all';
+let calM=today().slice(0,7),calSel=today(),calD='all',calMode='day',calFrom=today(),calTo=today(),calPend=false;
 
 /* ---------- modal ---------- */
 function modal(h){$('#modal').innerHTML=h?`<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">${h}</div></div>`:''}
@@ -454,7 +457,8 @@ function openOrder(id,fresh){
   ${o.status==='cancelled'?`<div class="row" style="margin-top:14px"><span class="pill st-cancel">Cancelled</span><span class="grow"></span><button class="btn sm" onclick="setStatus('${o.id}','new')">Reopen order</button></div>`:`
   <label>Status</label><div class="seg">${['new','progress','ready','completed'].map(s=>`<button class="${o.status===s?'on':''}" onclick="setStatus('${o.id}','${s}')">${ST[s][0]}</button>`).join('')}</div>
   ${b>0?`<label>Record a payment</label><div class="row"><input id="pay_amt" type="number" min="0" inputmode="decimal" value="${b}"><select id="pay_m" onchange="bankToggle('pay')">${METHODS.map(m=>`<option>${m}</option>`).join('')}</select></div><input id="pay_bank" placeholder="Which bank?" aria-label="Bank name" style="display:none;margin-top:8px"><button class="btn pink full" style="margin-top:8px" onclick="addPay('${o.id}')">Add payment</button>`:''}
-  <div class="row" style="margin-top:16px"><button class="btn dark grow" onclick="printOrder('${o.id}')">Print receipt</button><button class="btn warn grow" onclick="cancelOrder('${o.id}')">Cancel order</button></div>
+  <div class="row" style="margin-top:16px"><button class="btn dark grow" onclick="printOrder('${o.id}')">Print receipt</button><button class="btn grow" onclick="drPick('${o.id}')">Delivery receipt</button></div>
+  <div class="row" style="margin-top:8px"><button class="btn warn grow" onclick="cancelOrder('${o.id}')">Cancel order</button></div>
   <div class="row" style="margin-top:6px;justify-content:center"><button class="lnk" onclick="printerSettings('${o.id}')">Printer settings</button><button class="lnk" onclick="try{window.print()}catch(e){}">Print from browser</button></div>`}`);
 }
 function setStatus(id,s){const o=db.orders.find(x=>x.id===id);o.status=s;save();render();openOrder(id)}
@@ -526,6 +530,7 @@ function editContact(id,fromCart){
   <label>Notes</label><input id="c_x" value="${esc(c.notes)}" placeholder="Sizes, preferences, terms">
   ${os.length?`<div class="sec">Recent orders</div>${os.map(o=>`<div class="tot"><span>${ordNo(o)} · ${fmtD(o.date)} <span class="pill ${ST[o.status][1]}">${ST[o.status][0]}</span></span><b>${money(o.total)}</b></div>`).join('')}`:''}
   ${ex.length?`<div class="sec">Recent purchases</div>${ex.map(e=>`<div class="tot"><span>${esc(e.desc||e.cat)} · ${fmtD(e.date)}</span><b>${money(e.amt)}</b></div>`).join('')}`:''}
+  ${id&&isCust(c)&&owedBy(id)>0?`<button class="btn full" style="margin-top:14px" onclick="statementFor('${id}')">Billing statement (PDF) · owes ${money(owedBy(id))}</button>`:''}
   <div class="row" style="margin-top:18px">${id&&ROLE==='owner'?`<button class="btn warn" onclick="delContact('${id}')">Delete</button>`:''}<button class="btn pink grow" onclick="saveContact('${id}')">Save</button></div>`);
 }
 function setCType(k){cType=k;[...$('#c_type').children].forEach((b,i)=>b.classList.toggle('on',['customer','supplier','both'][i]===k));$('#supBox').style.display=k==='customer'?'none':'block'}
@@ -606,38 +611,133 @@ function dayData(key){
   return{pays,os,ex,sales:sumAmt(pays),unpaid:os.reduce((a,o)=>a+bal(o)*shareOf(o,calD),0),exp:ex.reduce((a,e)=>a+e.amt,0)};
 }
 function calShift(n){const[y,m]=calM.split('-').map(Number);const d=new Date(y,m-1+n,1);calM=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');render()}
-function calPick(k){calSel=k;calM=k.slice(0,7);render()}
+function calPick(k){
+  if(calMode==='range'){
+    if(calPend){calTo=k;if(calTo<calFrom){const t=calFrom;calFrom=calTo;calTo=t}calPend=false}else{calFrom=calTo=k;calPend=true}
+    calSel=k;calM=k.slice(0,7);render();return}
+  calSel=k;calM=k.slice(0,7);render()}
+function calMode_(m){calMode=m;calPend=false;if(m==='range'){calFrom=calTo=calSel}render()}
+function calRange(){
+  let a=$('#calFrom').value,b=$('#calTo').value;if(!a&&!b)return;
+  a=a||b;b=b||a;if(b<a){const t=a;a=b;b=t}
+  calFrom=a;calTo=b;calPend=false;calSel=a;calM=a.slice(0,7);render()}
+function calQuick(k){
+  const t=new Date();t.setHours(0,0,0,0);const f=d=>dayKey(d.getTime());let a=new Date(t),b=new Date(t);
+  if(k==='7')a.setDate(a.getDate()-6);else if(k==='30')a.setDate(a.getDate()-29);
+  else if(k==='month'){a=new Date(t.getFullYear(),t.getMonth(),1);b=new Date(t.getFullYear(),t.getMonth()+1,0)}
+  else if(k==='last'){a=new Date(t.getFullYear(),t.getMonth()-1,1);b=new Date(t.getFullYear(),t.getMonth(),0)}
+  calFrom=f(a);calTo=f(b);calPend=false;calSel=calFrom;calM=calFrom.slice(0,7);render()}
+function rangeData(a,b){
+  const inR=k=>k>=a&&k<=b;
+  const pays=payList(ts=>inR(dayKey(ts)),calD),os=live().filter(o=>inR(dayKey(o.date))&&shareOf(o,calD)>0).sort((x,y)=>y.date-x.date);
+  const ex=db.expenses.filter(e=>inR(e.date)&&(calD==='all'||e.dept===calD)).sort((x,y)=>y.date.localeCompare(x.date));
+  return{pays,os,ex,sales:sumAmt(pays),unpaid:os.reduce((t,o)=>t+bal(o)*shareOf(o,calD),0),exp:ex.reduce((t,e)=>t+e.amt,0)};
+}
 function viewCalendar(){
   const[y,m]=calM.split('-').map(Number),first=new Date(y,m-1,1),n=new Date(y,m,0).getDate(),lead=first.getDay();
   let ms=0,me=0;const cells=[];
   for(let i=0;i<lead;i++)cells.push('<div class="cal-d blank"></div>');
   for(let d=1;d<=n;d++){
     const key=calM+'-'+String(d).padStart(2,'0'),x=dayData(key);ms+=x.sales;me+=x.exp;
-    cells.push(`<button class="cal-d ${key===calSel?'sel':''} ${key===today()?'today':''}" onclick="calPick('${key}')" aria-label="${key}"><span class="n">${d}</span>${x.sales?`<span class="s">${compact(x.sales)}</span>`:''}${x.exp?`<span class="e">−${compact(x.exp)}</span>`:''}</button>`);
+    cells.push(`<button class="cal-d ${calMode==='range'?((key===calFrom||key===calTo)?'sel':(key>calFrom&&key<calTo?'inr':'')):(key===calSel?'sel':'')} ${key===today()?'today':''}" onclick="calPick('${key}')" aria-label="${key}"><span class="n">${d}</span>${x.sales?`<span class="s">${compact(x.sales)}</span>`:''}${x.exp?`<span class="e">−${compact(x.exp)}</span>`:''}</button>`);
   }
-  const sd=dayData(calSel),dateLbl=new Date(calSel+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const R=calMode==='range',L=k=>new Date(k+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const sd=R?rangeData(calFrom,calTo):dayData(calSel),days=R?Math.round((new Date(calTo+'T00:00:00')-new Date(calFrom+'T00:00:00'))/864e5)+1:1;
+  const dateLbl=R?(calFrom===calTo?L(calFrom):L(calFrom)+' – '+L(calTo)):new Date(calSel+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const per=R?'in this period':'on this day';
   return`${head('Calendar','Sales are money received. Unpaid balances are not counted.')}
   <div class="row" style="flex-wrap:wrap;margin-bottom:12px">
     <div class="seg grow" style="min-width:260px"><button class="${calD==='all'?'on':''}" onclick="calD='all';render()">All</button>${DEPTS.map(d=>`<button class="${calD===d.k?'on':''}" onclick="calD='${d.k}';render()">${d.n}</button>`).join('')}</div>
-    <input type="date" id="calGo" value="${calSel}" style="width:170px" aria-label="Go to date" onchange="if(this.value)calPick(this.value)">
+    <div class="seg" style="width:200px"><button class="${!R?'on':''}" onclick="calMode_('day')">One day</button><button class="${R?'on':''}" onclick="calMode_('range')">From – To</button></div>
   </div>
+  ${R?`<div class="card" style="padding:12px 14px;margin-bottom:12px"><div class="two"><div><label style="margin-top:0">From</label><input type="date" id="calFrom" value="${calFrom}" onchange="calRange()"></div><div><label style="margin-top:0">To</label><input type="date" id="calTo" value="${calTo}" onchange="calRange()"></div></div>
+    <div class="chips" style="padding:10px 0 0">${[['7','Last 7 days'],['30','Last 30 days'],['month','This month'],['last','Last month']].map(([k,l])=>`<button class="chip" onclick="calQuick('${k}')">${l}</button>`).join('')}</div>
+    <div class="mut" style="font-size:12px;margin-top:8px">${calPend?'Now tap the end date on the calendar.':'Or tap a start date, then an end date, on the calendar.'}</div></div>`
+  :`<div class="row" style="margin-bottom:12px"><input type="date" id="calGo" value="${calSel}" style="width:170px" aria-label="Go to date" onchange="if(this.value)calPick(this.value)"></div>`}
   <div class="calgrid"><section>
     <div class="row" style="margin-bottom:10px"><button class="btn sm" onclick="calShift(-1)" aria-label="Previous month">‹</button><h3 class="grow" style="text-align:center;font-size:18px">${first.toLocaleDateString('en-US',{month:'long',year:'numeric'})}</h3><button class="btn sm" onclick="calShift(1)" aria-label="Next month">›</button><button class="btn sm" onclick="calPick(today())">Today</button></div>
     <div class="cal">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(w=>`<div class="wd">${w}</div>`).join('')}${cells.join('')}</div>
     <div class="legend" style="align-items:center"><span class="dtag"><i style="background:var(--pink)"></i>Sales received</span><span class="dtag"><i style="background:var(--ink)"></i>Expenses</span><span class="grow"></span><span class="tabular"><b style="color:var(--pink)">${money(ms)}</b> received · <b>${money(me)}</b> expenses · <b class="${ms-me<0?'neg':''}">${money(ms-me)}</b> net this month</span></div>
   </section>
   <aside class="card" style="align-self:start">
-    <h3 style="font-size:17px">${dateLbl}</h3>
+    <h3 style="font-size:17px">${dateLbl}</h3>${R&&days>1?`<div class="mut" style="font-size:13px">${days} days</div>`:''}
     <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:12px 0"><div class="kpi"><span>Sales received</span><b style="font-size:18px;color:var(--pink)">${money(sd.sales)}</b></div><div class="kpi"><span>Unpaid</span><b style="font-size:18px">${money(sd.unpaid)}</b></div><div class="kpi"><span>Expenses</span><b style="font-size:18px">${money(sd.exp)}</b></div></div>
     <b>Payments received (${sd.pays.length})</b>
-    <div class="list" style="margin:2px 0 14px">${sd.pays.length?sd.pays.map(payRow).join(''):'<div class="mut" style="font-size:13px;padding-top:6px">No payments on this day.</div>'}</div>
+    <div class="list" style="margin:2px 0 14px">${sd.pays.length?sd.pays.map(payRow).join(''):'<div class="mut" style="font-size:13px;padding-top:6px">No payments ${per}.</div>'}</div>
     <b>Orders placed (${sd.os.length})</b>
-    <div class="stack" style="margin:8px 0 14px">${sd.os.length?sd.os.map(ocardHTML).join(''):'<div class="mut" style="font-size:13px">No orders on this day.</div>'}</div>
-    <div class="row"><b class="grow">Expenses (${sd.ex.length})</b><button class="btn sm" onclick="editExpense('','${calSel}')">+ Add</button></div>
-    <div class="list" style="margin-top:4px">${sd.ex.length?sd.ex.map(expRow).join(''):'<div class="mut" style="font-size:13px;padding-top:6px">No expenses on this day.</div>'}</div>
+    <div class="stack" style="margin:8px 0 14px">${sd.os.length?sd.os.map(ocardHTML).join(''):'<div class="mut" style="font-size:13px">No orders ${per}.</div>'}</div>
+    <div class="row"><b class="grow">Expenses (${sd.ex.length})</b><button class="btn sm" onclick="editExpense('','${R?calFrom:calSel}')">+ Add</button></div>
+    <div class="list" style="margin-top:4px">${sd.ex.length?sd.ex.map(expRow).join(''):'<div class="mut" style="font-size:13px;padding-top:6px">No expenses ${per}.</div>'}</div>
   </aside></div>`;
 }
 
+/* ---------- billing statements (PDF) ---------- */
+const owedBy=id=>live().filter(o=>o.cust===id).reduce((a,o)=>a+bal(o),0);
+function stmtGroups(only){
+  const m={};
+  live().filter(o=>bal(o)>0&&(only===undefined||(o.cust||'')===only)).forEach(o=>{(m[o.cust||'']=m[o.cust||'']||[]).push(o)});
+  return Object.keys(m).map(id=>{
+    const c=cust(id)||{},t=today();
+    return{id,name:c.name||'Walk-in',phone:c.phone||'',address:c.address||'',
+      rows:m[id].sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999')||a.date-b.date).map(o=>({no:ordNo(o),date:fmtD(o.date),due:o.due?fmtD(o.due):'',overdue:!!(o.due&&o.due<t),
+        desc:o.items.map(i=>i.qty+' x '+i.name).join(', '),total:o.total,paid:paid(o),bal:bal(o)}))};
+  }).sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+}
+let pdfFile=null,pdfUrl='';
+function makeStatements(groups,label){
+  if(!groups.length){toast('Nothing unpaid');return}
+  if(!window.makeStatementPdf){toast('statement.js is missing from your website');return}
+  const s=db.settings,d=new Date().toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'});
+  const canCount=!CLOUD||ROLE==='owner';
+  groups.forEach((g,i)=>{if(canCount)g.ctrl='SOA-'+String((s.stmtNo||1)+i).padStart(4,'0');else{const n=new Date();g.ctrl='SOA-'+today().replace(/-/g,'')+'-'+String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0')+(groups.length>1?'-'+(i+1):'')}});
+  if(canCount){s.stmtNo=(s.stmtNo||1)+groups.length;save()}
+  let bytes;try{bytes=window.makeStatementPdf({biz:{name:s.store,addr:s.addr,phone:s.phone,payInfo:s.payInfo,footer:s.footer,cur:s.cur},date:d,groups})}catch(e){toast('Could not make the PDF');console.error(e);return}
+  const fn='Statement-'+label.replace(/[^A-Za-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+today()+'.pdf';
+  if(pdfUrl)URL.revokeObjectURL(pdfUrl);
+  const blob=new Blob([bytes],{type:'application/pdf'});pdfUrl=URL.createObjectURL(blob);
+  pdfFile=new File([blob],fn,{type:'application/pdf'});
+  const tot=groups.reduce((a,g)=>a+g.rows.reduce((x,r)=>x+r.bal,0),0);
+  showPdf(fn,'Statement ready',groups.length===1?groups[0].name:groups.length+' customers',groups.length===1?groups[0].ctrl:'',groups.reduce((a,g)=>a+g.rows.length,0)+' unpaid order(s) · '+money(tot)+' due'+(groups.length>1?' · one page set per customer':''));
+}
+function showPdf(fn,title,who,ctrl,line){
+  const canShare=!!(navigator.canShare&&navigator.canShare({files:[pdfFile]}));
+  modal(`<div class="sh"><h3>${title}</h3><button class="btn sm" onclick="closeModal()">Close</button></div>
+  <p style="margin:0 0 4px"><b>${esc(who)}</b>${ctrl?` · <span class="mut">${ctrl}</span>`:''}</p>
+  <p class="mut" style="margin:0 0 14px;font-size:13px">${esc(line)}</p>
+  <a class="btn pink full" href="${pdfUrl}" download="${esc(fn)}" style="text-align:center;text-decoration:none">Download PDF (soft copy)</a>
+  ${canShare?`<button class="btn full" style="margin-top:8px" onclick="sharePdf()">Share or send…</button>`:''}
+  <a class="btn full" href="${pdfUrl}" target="_blank" rel="noopener" style="margin-top:8px;text-align:center;text-decoration:none;display:block">Open to print</a>
+  <div class="card" style="margin-top:14px;font-size:13px;line-height:1.5"><b>To print with Google Drive</b><br>1. Download the PDF.<br>2. Upload it to Google Drive and open it.<br>3. Tap the print icon (or press Ctrl + P).<br><span class="mut">Tip: print it straight from Drive. Converting it to a Google Doc can shift the layout.</span></div>`);
+}
+function sharePdf(){if(pdfFile)navigator.share({files:[pdfFile],title:pdfFile.name}).catch(()=>{})}
+function statementFor(id){makeStatements(stmtGroups(id),custName(id))}
+function statementsAll(){makeStatements(stmtGroups(),'All-unpaid')}
+
+/* ---------- delivery receipts (PDF) ---------- */
+function drPick(id){
+  const o0=db.orders.find(x=>x.id===id);if(!o0)return;
+  const c=cust(o0.cust)||{},same=o0.cust?live().filter(o=>o.cust===o0.cust):[o0];
+  modal(`<div class="sh"><h3>Delivery receipt</h3><button class="btn sm" onclick="openOrder('${id}')">Back</button></div>
+  <p class="mut" style="margin:0 0 6px;font-size:13px">Tick the orders being delivered to <b>${esc(custName(o0.cust))}</b>.</p>
+  <div class="card list" style="padding:4px 14px">${same.sort((a,b)=>b.date-a.date).map(o=>`<label style="display:flex;gap:10px;align-items:center;margin:0;padding:10px 0;border-bottom:1px solid var(--line);font-weight:500"><input type="checkbox" class="dr_ck" value="${o.id}" ${o.id===id?'checked':''} style="width:20px;height:20px;flex:none"><span class="grow">${ordNo(o)} · ${fmtD(o.date)} <span class="pill ${ST[o.status][1]}">${ST[o.status][0]}</span><br><span class="mut" style="font-size:12px;font-weight:400">${esc(o.items.map(i=>i.qty+'× '+i.name).join(', ')).slice(0,70)}</span></span><b class="tabular">${money(o.total)}</b></label>`).join('')}</div>
+  <label>Deliver to (address)</label><input id="dr_a" value="${esc(c.address||'')}" placeholder="Delivery address">
+  <button class="btn pink full" style="margin-top:16px" onclick="drMake('${o0.cust||''}')">Make delivery receipt</button>`);
+}
+function drMake(custId){
+  const ids=[...document.querySelectorAll('.dr_ck:checked')].map(x=>x.value);
+  if(!ids.length){toast('Tick at least one order');return}
+  if(!window.makeDeliveryPdf){toast('statement.js is missing from your website');return}
+  const s=db.settings,c=cust(custId)||{},os=ids.map(i=>db.orders.find(x=>x.id===i)).filter(Boolean).sort((a,b)=>a.no-b.no);
+  const canCount=!CLOUD||ROLE==='owner',n=new Date();
+  const ctrl=canCount?'DR-'+String(s.drNo||1).padStart(4,'0'):'DR-'+today().replace(/-/g,'')+'-'+String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0');
+  const g={name:c.name||'Walk-in',phone:c.phone||'',address:$('#dr_a').value.trim(),ctrl,orders:os.map(o=>({no:ordNo(o),note:o.note||'',items:o.items.map(i=>({name:i.name,qty:i.qty,price:i.price})),sub:o.sub||o.total,disc:o.disc||0,total:o.total,paid:paid(o),bal:bal(o)}))};
+  let bytes;try{bytes=window.makeDeliveryPdf({biz:{name:s.store,addr:s.addr,phone:s.phone,footer:s.footer,cur:s.cur},date:new Date().toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'}),groups:[g]})}catch(e){toast('Could not make the PDF');console.error(e);return}
+  if(canCount){s.drNo=(s.drNo||1)+1;save()}
+  const fn='Delivery-'+ctrl+'-'+(g.name).replace(/[^A-Za-z0-9]+/g,'-').replace(/^-|-$/g,'')+'.pdf';
+  if(pdfUrl)URL.revokeObjectURL(pdfUrl);
+  const blob=new Blob([bytes],{type:'application/pdf'});pdfUrl=URL.createObjectURL(blob);pdfFile=new File([blob],fn,{type:'application/pdf'});
+  showPdf(fn,'Delivery receipt ready',g.name,ctrl,os.map(ordNo).join(', ')+' · '+os.reduce((a,o)=>a+o.items.reduce((b,i)=>b+i.qty,0),0)+' item(s)');
+}
 /* ---------- records (reports by department) ---------- */
 let recD='all',recT='sales';
 function viewReports(){
@@ -652,7 +752,7 @@ function viewReports(){
   const pl=payList(inRange,recD),ul=unpaidList(recD),el=expList(inRange,recD);
   const dn=recD==='all'?'All departments':D(recD).n;
   const body=recT==='sales'?(pl.length?pl.map(payRow).join('')+`<div class="tot big" style="margin-top:0"><span>Total received</span><span>${money(sumAmt(pl))}</span></div>`:'<div class="empty small">No payments received in this period.</div>')
-    :recT==='unpaid'?(ul.length?ul.map(x=>unpaidRow(x,recD)).join('')+`<div class="tot big" style="margin-top:0"><span>Total unpaid</span><span style="color:var(--pink)">${money(sumAmt(ul))}</span></div>`:'<div class="empty small">Nothing unpaid. Everything is settled.</div>')
+    :recT==='unpaid'?(ul.length?`<button class="btn pink full" style="margin:6px 0 4px" onclick="statementsAll()">Billing statements for all unpaid customers (PDF)</button>`+ul.map(x=>unpaidRow(x,recD)).join('')+`<div class="tot big" style="margin-top:0"><span>Total unpaid</span><span style="color:var(--pink)">${money(sumAmt(ul))}</span></div>`:'<div class="empty small">Nothing unpaid. Everything is settled.</div>')
     :(el.length?el.map(expRow).join('')+`<div class="tot big" style="margin-top:0"><span>Total expenses</span><span>${money(el.reduce((a,e)=>a+e.amt,0))}</span></div>`:'<div class="empty small">No expenses in this period.</div>');
   // last 7 days of money received, stacked by department
   const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);const key=dayKey(d.getTime());const v={};DEPTS.forEach(x=>v[x.k]=sumAmt(payList(dayMatch(key),x.k)));return{l:d.toLocaleDateString('en-US',{weekday:'short'}),v,t:DEPTS.reduce((a,x)=>a+v[x.k],0)}});
@@ -693,7 +793,11 @@ function viewManage(){
   <div class="sec">Business</div>
   <div class="card"><label style="margin-top:0">Business name</label><input id="s_n" value="${esc(s.store)}">
   <div class="two"><div><label>Currency symbol</label><input id="s_c" value="${esc(s.cur)}"></div><div><label>Next order number</label><input id="s_o" type="number" min="1" value="${s.orderNo}"></div></div>
-  <label>Receipt footer</label><input id="s_f" value="${esc(s.footer)}"><button class="btn dark full" style="margin-top:14px" onclick="saveSettings()">Save details</button></div>
+  <label>Receipt footer</label><input id="s_f" value="${esc(s.footer)}">
+  <div class="two"><div><label>Next billing statement no.</label><input id="s_sn" type="number" min="1" value="${s.stmtNo||1}"></div><div><label>Next delivery receipt no.</label><input id="s_dn" type="number" min="1" value="${s.drNo||1}"></div></div>
+  <div class="two"><div><label>Shop address (for statements)</label><input id="s_a" value="${esc(s.addr||'')}" placeholder="Street, city"></div><div><label>Shop phone</label><input id="s_ph" type="tel" value="${esc(s.phone||'')}" placeholder="09xx xxx xxxx"></div></div>
+  <label>How to pay (shown on billing statements)</label><textarea id="s_pay" rows="3" placeholder="GCash 09xx xxx xxxx - Juan Dela Cruz&#10;BDO Savings 0000 0000 0000">${esc(s.payInfo||'')}</textarea>
+  <button class="btn dark full" style="margin-top:14px" onclick="saveSettings()">Save details</button></div>
   <div class="sec">Receipt printer</div>
   <div class="card"><div class="row"><span class="grow mut" style="font-size:13px">Print receipts on a Bluetooth thermal printer.</span><button class="btn" onclick="printerSettings()">Set up</button></div></div>
   <div class="sec">Data</div>
@@ -703,7 +807,7 @@ function viewManage(){
   <div class="row" style="flex-wrap:wrap;margin-top:8px"><button class="btn grow" onclick="exportOrders()">Orders CSV</button><button class="btn grow" onclick="exportExpenses()">Expenses CSV</button><button class="btn grow" onclick="exportContacts()">Contacts CSV</button></div>
   <button class="btn warn full" style="margin-top:8px" onclick="resetAll()">Erase all data</button></div>`;
 }
-function saveSettings(){const s=db.settings;s.store=$('#s_n').value.trim()||'TriPOS';s.cur=$('#s_c').value||'₱';s.orderNo=Math.max(parseInt($('#s_o').value)||1,1);s.footer=$('#s_f').value;if(CLOUD)Cloud.setCounter(s.orderNo).catch(()=>toast('Could not update the order number'));save();render();toast('Saved')}
+function saveSettings(){const s=db.settings;s.store=$('#s_n').value.trim()||'TriPOS';s.cur=$('#s_c').value||'₱';s.orderNo=Math.max(parseInt($('#s_o').value)||1,1);s.footer=$('#s_f').value;s.addr=$('#s_a').value.trim();s.phone=$('#s_ph').value.trim();s.payInfo=$('#s_pay').value.trim();s.stmtNo=Math.max(parseInt($('#s_sn').value)||1,1);s.drNo=Math.max(parseInt($('#s_dn').value)||1,1);if(CLOUD)Cloud.setCounter(s.orderNo).catch(()=>toast('Could not update the order number'));save();render();toast('Saved')}
 function editItem(id,dept){
   const i=db.items.find(x=>x.id===id)||{dept:dept||'embroidery',name:'',price:''};
   modal(`<div class="sh"><h3>${id?'Edit service':'New service'}</h3><button class="btn sm" onclick="closeModal()">Close</button></div>
@@ -903,11 +1007,12 @@ render();
 if(CLOUD){
   $('#login').hidden=false;
   if(window.Cloud)startCloud();else addEventListener('cloud-ready',startCloud,{once:true});
-  setTimeout(()=>{if(!window.Cloud)$('#lerr').textContent='Cannot reach the online service. Check your internet and reload.'},12000);
+  addEventListener('cloud-failed',()=>{$('#lerr').textContent='Could not start the online service. '+(window.CloudError||'')});
+  setTimeout(()=>{if(!window.Cloud&&!window.CloudError)$('#lerr').textContent='The online service is taking too long to load. Check your internet, then reload the page.'},12000);
 }
 addEventListener('resize',()=>{if(cartOpen&&isWide())closeModal()});
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))addEventListener('load',()=>{try{navigator.serviceWorker.register('sw.js').catch(()=>{})}catch{}});
 </script>
-<script type="module" src="cloud.js"></script>
+<script type="module" src="cloud.js" onerror="window.CloudError='The file cloud.js is missing from your website. Upload it to GitHub again.';window.dispatchEvent(new Event('cloud-failed'))"></script>
 </body>
 </html>

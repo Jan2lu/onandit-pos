@@ -1,9 +1,31 @@
 // Online sync + login for On&iT POS (Supabase Auth + Postgres).
 // Loaded only when app-config.js has been filled in.
-import {createClient} from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+const SOURCES=[
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm',
+  'https://esm.sh/@supabase/supabase-js@2'
+];
+async function loadClient(){
+  let last;
+  for(const u of SOURCES){
+    try{const m=await import(u);if(m&&m.createClient)return m.createClient}catch(e){last=e}
+  }
+  throw new Error('The Supabase library could not be downloaded. Check your internet, and turn off any ad blocker or school/work filter for this site.'+(last&&last.message?' ('+last.message+')':''));
+}
+function fail(msg){window.CloudError=msg;window.dispatchEvent(new Event('cloud-failed'))}
 
-const cfg=window.TRIPOS_CLOUD;
-const sb=createClient(cfg.supabase.url,cfg.supabase.anonKey,{auth:{persistSession:true,autoRefreshToken:true}});
+const cfg=window.TRIPOS_CLOUD||{};
+const url=String(cfg.supabase&&cfg.supabase.url||'').trim().replace(/\/+$/,'');
+const key=String(cfg.supabase&&cfg.supabase.anonKey||'').trim();
+let sb=null;
+if(!/^https:\/\/[^\s/]+\.[^\s/]+$/.test(url)||/supabase\.com/i.test(url)){
+  fail('The Supabase URL in app-config.js looks wrong. It should look like https://abcdefgh.supabase.co (the Project URL, not the dashboard address).');
+}else{
+  try{
+    const createClient=await loadClient();
+    sb=createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true}});
+  }catch(e){fail(e.message)}
+}
 const COLS=['items','contacts','orders','expenses'];
 const ALL=[...COLS,'settings','meta'];
 const single=c=>c==='settings'||c==='meta';
@@ -14,7 +36,7 @@ function authError(error){
   return e;
 }
 
-window.Cloud={
+if(sb){window.Cloud={
   // Calls cb({email}) or cb(null) only when the signed-in person changes.
   onUser(cb){
     let last=null,seen=false;
@@ -101,4 +123,4 @@ window.Cloud={
     return data;
   }
 };
-window.dispatchEvent(new Event('cloud-ready'));
+window.dispatchEvent(new Event('cloud-ready'));}
