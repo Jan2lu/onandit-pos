@@ -218,11 +218,14 @@ window.makeDeliveryPdf=function(o){
     });
     // totals
     const sub=g.orders.reduce((a,x)=>a+x.sub,0),disc=g.orders.reduce((a,x)=>a+x.disc,0),tot=g.orders.reduce((a,x)=>a+x.total,0),pd=g.orders.reduce((a,x)=>a+x.paid,0),bl=g.orders.reduce((a,x)=>a+x.bal,0);
+    const taxT=g.orders.reduce((a,x)=>a+(x.tax||0),0),taxLbl=[...new Set(g.orders.filter(x=>x.tax).map(x=>x.taxLabel||'Tax'))].join(' / ')||'Tax';
     const nQty=g.orders.reduce((a,x)=>a+x.items.reduce((b,i)=>b+i.qty,0),0);
     if(y+250>FOOT){small();y=56}
     y+=8;doc.text('Total quantity delivered: '+nQty,M,y+8,9.5,true,INK);
     y+=10;const t1=PW-M-215,t2=PW-M-6;
-    if(disc>0){doc.text('Subtotal',t1,y+8,9.5,false,MUT);doc.text(money(sub),t2,y+8,9.5,false,INK,'r');y+=15;doc.text('Discount',t1,y+8,9.5,false,MUT);doc.text('- '+money(disc),t2,y+8,9.5,false,INK,'r');y+=15}
+    if(disc>0||taxT>0){doc.text('Subtotal',t1,y+8,9.5,false,MUT);doc.text(money(sub),t2,y+8,9.5,false,INK,'r');y+=15}
+    if(disc>0){doc.text('Discount',t1,y+8,9.5,false,MUT);doc.text('- '+money(disc),t2,y+8,9.5,false,INK,'r');y+=15}
+    if(taxT>0){doc.text('Less: '+taxLbl,t1,y+8,9.5,false,MUT);doc.text('- '+money(taxT),t2,y+8,9.5,false,INK,'r');y+=15}
     doc.text('Order total',t1,y+8,9.5,false,MUT);doc.text(money(tot),t2,y+8,9.5,false,INK,'r');y+=15;
     doc.text('Paid',t1,y+8,9.5,false,MUT);doc.text('- '+money(pd),t2,y+8,9.5,false,INK,'r');y+=11;
     doc.line(t1,y,PW-M,y,INK,1);y+=17;
@@ -241,5 +244,138 @@ window.makeDeliveryPdf=function(o){
     doc.text(store+'  -  Delivery receipt for '+asc(name),M,PH-21,7.8,false,MUT);
     doc.text((g0.ctrl?g0.ctrl+'  -  ':'')+'Page '+(p-a+1)+' of '+(b-a+1),PW-M,PH-21,7.8,false,MUT,'r')}});
   return build(doc,'Delivery receipt - '+o.groups[0].name,logo);
+};
+
+window.makeReceiptPdf=function(o){
+  const biz=o.biz||{},cur=(biz.cur&&biz.cur!=='₱')?asc(biz.cur):'PHP',money=n=>cur+' '+num(n),store=asc(biz.name||''),r=o.order;
+  let logo=null;
+  if(window.LOGO_DATA){try{const bin=atob(window.LOGO_DATA.b64),b=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);logo={w:window.LOGO_DATA.w,h:window.LOGO_DATA.h,bytes:b}}catch(e){logo=null}}
+  const doc=new Doc(),FOOT=PH-44;
+  const sp=doc.page();
+  doc.rect(0,0,PW,96,'#000000');
+  if(logo){const h=62,w=h*logo.w/logo.h;doc.image(M,17,w,h)}else doc.text(store,M,56,20,true,'#ffffff');
+  doc.text('RECEIPT',PW-M,48,19,true,'#ffffff','r');
+  doc.text('Date: '+r.date,PW-M,67,9.5,false,LT,'r');
+  doc.text('Receipt No. '+r.no,PW-M,83,10.5,true,'#ffffff','r');
+  doc.rect(0,96,PW,4,PINK2);
+  let y=126;
+  doc.text('RECEIVED FROM',M,y,8,true,PINK);doc.text('FROM',320,y,8,true,PINK);
+  let ly=y+16;
+  wrap(r.name||'Walk-in',13,true,250).forEach(t=>{doc.text(t,M,ly,13,true,INK);ly+=16});
+  if(r.phone){doc.text(r.phone,M,ly,9.5,false,INK);ly+=13}
+  if(r.address)wrap(r.address,9.5,false,250).forEach(t=>{doc.text(t,M,ly,9.5,false,MUT);ly+=13});
+  let ry=y+16;
+  wrap(store,11,true,235).forEach(t=>{doc.text(t,320,ry,11,true,INK);ry+=14});
+  if(biz.addr)wrap(biz.addr,9.5,false,235).forEach(t=>{doc.text(t,320,ry,9.5,false,MUT);ry+=13});
+  if(biz.phone){doc.text(biz.phone,320,ry,9.5,false,INK);ry+=13}
+  y=Math.max(ly,ry)+6;
+  if(r.due){doc.text('Due date: '+r.due,M,y+10,9.5,false,INK);y+=13}
+  y+=14;
+  const COLS=[['Item',0,'l'],['Qty',44,'r'],['Unit price',74,'r'],['Amount',80,'r']];
+  COLS[0][1]=CW-COLS.reduce((a,c)=>a+c[1],0);
+  const cx=[];{let x=M;COLS.forEach(c=>{cx.push(x);x+=c[1]})}
+  const head=yy=>{doc.rect(M,yy,CW,19,'#000000');COLS.forEach((c,i)=>doc.text(c[0],c[2]==='r'?cx[i]+c[1]-5:cx[i]+5,yy+12.6,8.2,true,'#ffffff',c[2]));return yy+19};
+  const small=()=>{doc.page();doc.rect(0,0,PW,34,'#000000');doc.rect(0,34,PW,3,PINK2);doc.text(store,M,22,11,true,'#ffffff');doc.text('Receipt '+r.no+' (continued)',PW-M,22,9,false,LT,'r')};
+  y=head(y);
+  r.items.forEach(it=>{
+    const dl=wrap(it.name,9,false,COLS[0][1]-10),rh=Math.max(dl.length*11.5+10,24);
+    if(y+rh>FOOT-4){small();y=head(52)}
+    dl.forEach((t,j)=>doc.text(t,cx[0]+5,y+15+j*11.5,9,false,INK));
+    doc.text(String(it.qty),cx[1]+COLS[1][1]-5,y+15,9.2,true,INK,'r');
+    doc.text(num(it.price),cx[2]+COLS[2][1]-5,y+15,8.8,false,INK,'r');
+    doc.text(num(it.qty*it.price),cx[3]+COLS[3][1]-5,y+15,8.8,false,INK,'r');
+    doc.line(M,y+rh,M+CW,y+rh,LINE,0.6);y+=rh;
+  });
+  if(r.note){const nl=wrap('Note: '+r.note,8.6,false,CW-20);if(y+nl.length*11+10>FOOT-4){small();y=56}
+    nl.forEach((t,j)=>doc.text(t,M+5,y+14+j*11,8.6,false,MUT));y+=nl.length*11+8}
+  const nPay=r.payments.length;
+  if(y+130+nPay*15>FOOT){small();y=56}
+  y+=14;const t1=PW-M-215,t2=PW-M-6,row=(a,b,bold,col)=>{doc.text(a,t1,y,9.5,!!bold,col||MUT);doc.text(b,t2,y,9.5,!!bold,col||INK,'r');y+=15};
+  if(r.disc>0||r.tax>0)row('Subtotal',money(r.sub));
+  if(r.disc>0)row('Discount','- '+money(r.disc));
+  if(r.tax>0)row('Less: '+r.taxLabel,'- '+money(r.tax));
+  doc.line(t1,y-8,PW-M,y-8,INK,1);y+=8;
+  doc.text('TOTAL',t1,y,11,true,INK);doc.text(money(r.total),t2,y,13,true,INK,'r');y+=24;
+  if(nPay){doc.text('PAYMENTS RECEIVED',M,y,8,true,PINK);y+=4;
+    r.payments.forEach(p=>{y+=14;doc.text(p.date+'  -  '+p.method+(p.bank?' ('+p.bank+')':''),M,y,9.5,false,INK);doc.text(money(p.amt),PW-M-6,y,9.5,false,INK,'r');doc.line(M,y+5,PW-M,y+5,LINE,0.6)});
+    y+=8}
+  y+=14;
+  if(r.bal>0){doc.rect(M,y,CW,36,PINKBG,PINKBD,1);doc.rect(M,y,5,36,PINK);doc.text('BALANCE DUE',M+18,y+22,10,true,PINK);doc.text(money(r.bal),PW-M-14,y+24,15,true,INK,'r');y+=36}
+  else{doc.rect(M,y,CW,36,PINKBG,PINKBD,1);doc.rect(M,y,5,36,PINK);doc.text('PAID IN FULL',M+18,y+22,10,true,PINK);doc.text('Thank you!',PW-M-14,y+22,11,true,INK,'r');y+=36}
+  if(r.status)doc.text('Order status: '+r.status,M,y+16,8.6,false,MUT);
+  if(biz.footer)doc.text(biz.footer,PW/2,y+44,9.5,true,MUT,'c');
+  const n=doc.pages.length;
+  for(let p=0;p<n;p++){doc.at(p);doc.line(M,PH-34,PW-M,PH-34,LINE,0.6);
+    doc.text(store+'  -  Receipt '+r.no,M,PH-21,7.8,false,MUT);
+    doc.text('Page '+(p+1)+' of '+n,PW-M,PH-21,7.8,false,MUT,'r')}
+  return build(doc,'Receipt '+r.no+' - '+r.name,logo);
+};
+
+window.makeQuotePdf=function(o){
+  const biz=o.biz||{},cur=(biz.cur&&biz.cur!=='₱')?asc(biz.cur):'PHP',money=n=>cur+' '+num(n),store=asc(biz.name||''),r=o.quote;
+  let logo=null;
+  if(window.LOGO_DATA){try{const bin=atob(window.LOGO_DATA.b64),b=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);logo={w:window.LOGO_DATA.w,h:window.LOGO_DATA.h,bytes:b}}catch(e){logo=null}}
+  const doc=new Doc(),FOOT=PH-44;
+  doc.page();
+  doc.rect(0,0,PW,96,'#000000');
+  if(logo){const h=62,w=h*logo.w/logo.h;doc.image(M,17,w,h)}else doc.text(store,M,56,20,true,'#ffffff');
+  doc.text('QUOTATION',PW-M,48,19,true,'#ffffff','r');
+  doc.text('Date: '+o.date,PW-M,67,9.5,false,LT,'r');
+  if(o.valid)doc.text('Valid until: '+o.valid,PW-M,83,10.5,true,'#ffffff','r');
+  doc.rect(0,96,PW,4,PINK2);
+  let y=126;
+  doc.text('PREPARED FOR',M,y,8,true,PINK);doc.text('FROM',320,y,8,true,PINK);
+  let ly=y+16;
+  wrap(r.name||'Customer',13,true,250).forEach(t=>{doc.text(t,M,ly,13,true,INK);ly+=16});
+  if(r.phone){doc.text(r.phone,M,ly,9.5,false,INK);ly+=13}
+  if(r.address)wrap(r.address,9.5,false,250).forEach(t=>{doc.text(t,M,ly,9.5,false,MUT);ly+=13});
+  let ry=y+16;
+  wrap(store,11,true,235).forEach(t=>{doc.text(t,320,ry,11,true,INK);ry+=14});
+  if(biz.addr)wrap(biz.addr,9.5,false,235).forEach(t=>{doc.text(t,320,ry,9.5,false,MUT);ry+=13});
+  if(biz.phone){doc.text(biz.phone,320,ry,9.5,false,INK);ry+=13}
+  y=Math.max(ly,ry)+20;
+  const COLS=[['Description',0,'l'],['Qty',44,'r'],['Unit price',74,'r'],['Amount',80,'r']];
+  COLS[0][1]=CW-COLS.reduce((a,c)=>a+c[1],0);
+  const cx=[];{let x=M;COLS.forEach(c=>{cx.push(x);x+=c[1]})}
+  const head=yy=>{doc.rect(M,yy,CW,19,'#000000');COLS.forEach((c,i)=>doc.text(c[0],c[2]==='r'?cx[i]+c[1]-5:cx[i]+5,yy+12.6,8.2,true,'#ffffff',c[2]));return yy+19};
+  const small=()=>{doc.page();doc.rect(0,0,PW,34,'#000000');doc.rect(0,34,PW,3,PINK2);doc.text(store,M,22,11,true,'#ffffff');doc.text('Quotation for '+r.name+' (continued)',PW-M,22,9,false,LT,'r')};
+  y=head(y);
+  r.items.forEach(it=>{
+    const dl=wrap(it.name,9,false,COLS[0][1]-10),rh=Math.max(dl.length*11.5+10,24);
+    if(y+rh>FOOT-4){small();y=head(52)}
+    dl.forEach((t,j)=>doc.text(t,cx[0]+5,y+15+j*11.5,9,false,INK));
+    doc.text(String(it.qty),cx[1]+COLS[1][1]-5,y+15,9.2,true,INK,'r');
+    doc.text(num(it.price),cx[2]+COLS[2][1]-5,y+15,8.8,false,INK,'r');
+    doc.text(num(it.qty*it.price),cx[3]+COLS[3][1]-5,y+15,8.8,false,INK,'r');
+    doc.line(M,y+rh,M+CW,y+rh,LINE,0.6);y+=rh;
+  });
+  if(y+110>FOOT){small();y=56}
+  y+=14;const t1=PW-M-215,t2=PW-M-6,row=(a,b)=>{doc.text(a,t1,y,9.5,false,MUT);doc.text(b,t2,y,9.5,false,INK,'r');y+=15};
+  if(r.disc>0||r.tax>0)row('Subtotal',money(r.sub));
+  if(r.disc>0)row('Discount','- '+money(r.disc));
+  if(r.tax>0)row('Less: '+r.taxLabel,'- '+money(r.tax));
+  doc.line(t1,y-8,PW-M,y-8,INK,1);y+=8;
+  doc.text('TOTAL',t1,y,11,true,PINK);doc.text(money(r.total),t2,y,14,true,PINK,'r');y+=26;
+  const nl=r.note?String(r.note).split(/\r?\n/).flatMap(l=>wrap(l,9.2,false,CW-24)):[];
+  if(nl.length){
+    const bh=nl.length*12.5+30;
+    if(y+bh>FOOT){small();y=56}
+    doc.rect(M,y,CW,bh,'#ffffff',LINE,1);
+    doc.text('NOTES & TERMS',M+12,y+17,8.5,true,PINK);
+    nl.forEach((t,k)=>doc.text(t,M+12,y+32+k*12.5,9.2,false,INK));
+    y+=bh+16;
+  }
+  if(y+100>FOOT){small();y=56}
+  doc.text('To approve this quotation, please sign below and send back a copy.',M,y+8,9.5,false,INK);
+  y+=52;
+  const sw=(CW-40)/2;
+  [['Approved by (name & signature)',M],['Date',M+sw+40]].forEach(([l,x])=>{doc.line(x,y,x+sw,y,INK,0.8);doc.text(l,x,y+12,8.2,false,MUT)});
+  y+=36;
+  if(biz.footer)doc.text(biz.footer,PW/2,y+4,9.5,true,MUT,'c');
+  const n=doc.pages.length;
+  for(let p=0;p<n;p++){doc.at(p);doc.line(M,PH-34,PW-M,PH-34,LINE,0.6);
+    doc.text(store+'  -  Quotation for '+asc(r.name),M,PH-21,7.8,false,MUT);
+    doc.text('Page '+(p+1)+' of '+n,PW-M,PH-21,7.8,false,MUT,'r')}
+  return build(doc,'Quotation - '+r.name,logo);
 };
 })();

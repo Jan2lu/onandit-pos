@@ -28,7 +28,7 @@ if(!/^https:\/\/[^\s/]+\.[^\s/]+$/.test(url)||/supabase\.com/i.test(url)){
     sb=createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true}});
   }catch(e){fail(e.message)}
 }
-const COLS=['items','contacts','orders','expenses'];
+const COLS=['items','contacts','orders','expenses','quotes'];
 const ALL=[...COLS,'settings','meta'];
 const single=c=>c==='settings'||c==='meta';
 
@@ -39,6 +39,7 @@ function authError(error){
 }
 
 if(sb){window.Cloud={
+  colls:COLS,
   // Calls cb({email}) or cb(null) only when the signed-in person changes.
   onUser(cb){
     let last=null,seen=false;
@@ -81,7 +82,7 @@ if(sb){window.Cloud={
         }
         ALL.forEach(c=>cache[c].clear());
         rows.forEach(r=>{if(cache[r.coll])cache[r.coll].set(r.id,val(r))});
-        (role==='owner'?COLS:COLS.filter(c=>c!=='expenses')).forEach(push);
+        (role==='owner'?COLS:COLS.filter(c=>c!=='expenses'&&c!=='quotes')).forEach(push);
         push('meta');push('settings');
       }catch(e){if(!stopped)h.error(e)}
       finally{loading=false}
@@ -90,7 +91,7 @@ if(sb){window.Cloud={
       .on('postgres_changes',{event:'*',schema:'public',table:'docs'},p=>{
         const row=p.eventType==='DELETE'?p.old:p.new;
         if(!row||!cache[row.coll])return;
-        if(role!=='owner'&&row.coll==='expenses')return;
+        if(role!=='owner'&&(row.coll==='expenses'||row.coll==='quotes'))return;
         if(p.eventType==='DELETE')cache[row.coll].delete(row.id);
         else cache[row.coll].set(row.id,val(row));
         push(row.coll);
